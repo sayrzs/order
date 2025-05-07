@@ -1,6 +1,7 @@
 const { Events } = require('discord.js');
 const TicketManager = require('../utils/ticketManager');
 const ConfirmationHandler = require('../utils/confirmationHandler');
+const QueueManager = require('../utils/queueManager');
 
 module.exports = {
     name: Events.InteractionCreate,
@@ -21,8 +22,20 @@ module.exports = {
                 const panelConfig = interaction.client.config.panels[panelIndex];
                 
                 if (panelConfig) {
-                    await TicketManager.createTicket(interaction, panelConfig);
+                    const queuePosition = QueueManager.addToQueue(
+                        interaction.guildId,
+                        interaction,
+                        panelConfig
+                    );
+
+                    if (queuePosition > 1) {
+                        await interaction.reply({
+                            content: `Your ticket request has been queued. Position in queue: ${queuePosition}`,
+                            ephemeral: true
+                        });
+                    }
                 }
+                return;
             }
 
             // Handle close ticket button
@@ -67,6 +80,7 @@ module.exports = {
                     ticket.claimedBy = interaction.user.id;
                     ticket.claimedAt = new Date();
                     interaction.client.tickets.set(interaction.channel.id, ticket);
+                    interaction.client.emit('ticketUpdate');
 
                     await interaction.reply({
                         content: `Ticket claimed by ${interaction.user}`,
@@ -91,7 +105,18 @@ module.exports = {
                     const panelConfig = interaction.client.config.panels[panelIndex];
                     
                     if (panelConfig) {
-                        await TicketManager.createTicket(interaction, panelConfig);
+                        const queuePosition = QueueManager.addToQueue(
+                            interaction.guildId,
+                            interaction,
+                            panelConfig
+                        );
+
+                        if (queuePosition > 1) {
+                            await interaction.reply({
+                                content: `Your ticket request has been queued. Position in queue: ${queuePosition}`,
+                                ephemeral: true
+                            });
+                        }
                     }
                 }
             }
