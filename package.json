@@ -1,0 +1,27 @@
+{
+  "name": "order",
+  "version": "1.0.0",
+  "description": "Discord Ticket Bot with advanced features",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "tickets",
+    "support"
+  ],
+  "author": "sayrzs",
+  "license": "ISC",
+  "dependencies": {
+    "@discordjs/rest": "^2.5.0",
+    "canvas": "^3.1.0",
+    "date-fns": "^4.1.0",
+    "discord-api-types": "^0.38.3",
+    "discord-html-transcripts": "^3.2.0",
+    "discord.js": "^14.19.3"
+  }
+}

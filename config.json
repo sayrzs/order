@@ -1,0 +1,35 @@
+{
+    "clientId": "YOUR_BOT_CLIENT_ID",
+    "token": "YOUR_BOT_TOKEN",
+    "adminRole": "ADMIN_ROLE_ID",
+    "staffRoles": ["STAFF_ROLE_ID"],
+    "ticketSettings": {
+        "categoryId": "TICKETS_CATEGORY_ID",
+        "logChannelId": "LOG_CHANNEL_ID",
+        "transcriptChannelId": "TRANSCRIPT_CHANNEL_ID",
+        "maxTicketsPerUser": 3,
+        "ticketCooldown": 300,
+        "autoCloseHours": 24,
+        "transcriptExpiryHours": 12
+    },
+    "panels": [
+        {
+            "name": "Support",
+            "emoji": "🎫",
+            "description": "Create a support ticket",
+            "color": "#5865F2"
+        },
+        {
+            "name": "Store",
+            "emoji": "🛍️",
+            "description": "Create a store-related ticket",
+            "color": "#57F287"
+        }
+    ],
+    "embeds": {
+        "color": "#5865F2",
+        "footerText": "Support Tickets",
+        "timestamp": true,
+        "thumbnailUrl": ""
+    }
+}
