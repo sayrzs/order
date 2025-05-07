@@ -6,6 +6,76 @@ const QueueManager = require('../utils/queueManager');
 module.exports = {
     name: Events.InteractionCreate,
     async execute(interaction) {
+        if (!interaction.isButton()) return;
+
+        const { customId, message, client } = interaction;
+
+        // Handle confirmation buttons
+        if (customId.startsWith('confirm_') || customId.startsWith('cancel_')) {
+            await ConfirmationHandler.handleConfirmation(interaction);
+            return;
+        }
+
+        // Handle history pagination
+        if (customId === 'prev_page' || customId === 'next_page') {
+            // Get current page from footer
+            const currentEmbed = message.embeds[0];
+            const footer = currentEmbed.footer.text;
+            const [current, total] = footer.match(/(\d+)\/(\d+)/).slice(1).map(Number);
+
+            let newPage = current;
+            if (customId === 'prev_page' && current > 1) {
+                newPage--;
+            } else if (customId === 'next_page' && current < total) {
+                newPage++;
+            }
+
+            if (newPage === current) {
+                await interaction.deferUpdate();
+                return;
+            }
+
+            // Update embed with new page content
+            const query = message.embeds[0].description.match(/Found \d+ tickets matching your search/);
+            if (!query) {
+                await interaction.deferUpdate();
+                return;
+            }
+
+            const allTickets = [
+                ...Array.from(client.tickets.values()),
+                ...Array.from(client.archivedTickets.values())
+            ];
+
+            // Sort by date (newest first)
+            allTickets.sort((a, b) => b.createdAt - a.createdAt);
+
+            const itemsPerPage = 5;
+            const startIndex = (newPage - 1) * itemsPerPage;
+            const pageTickets = allTickets.slice(startIndex, startIndex + itemsPerPage);
+
+            const newEmbed = currentEmbed
+                .setFields(
+                    pageTickets.map(ticket => ({
+                        name: `Ticket #${ticket.id}`,
+                        value: [
+                            `Creator: <@${ticket.userId}>`,
+                            `Type: ${ticket.type}`,
+                            `Status: ${ticket.closed ? 'Closed' : 'Open'}`,
+                            ticket.tags ? `Tags: ${ticket.tags.join(', ')}` : null,
+                            `Created: <t:${Math.floor(ticket.createdAt.getTime() / 1000)}:R>`,
+                        ].filter(Boolean).join('\n'),
+                        inline: false
+                    }))
+                )
+                .setFooter({ text: `Page ${newPage}/${total}` });
+
+            await interaction.update({
+                embeds: [newEmbed]
+            });
+            return;
+        }
+
         // Handle button interactions
         if (interaction.isButton()) {
             const { customId } = interaction;

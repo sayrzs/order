@@ -4,71 +4,86 @@ const QueueManager = require('../../utils/queueManager');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('queue-status')
-        .setDescription('Check the current ticket queue status'),
+        .setDescription('View the current ticket queue status'),
 
     async execute(interaction) {
-        const { guild, client } = interaction;
-        const status = QueueManager.getQueueStatus(guild.id);
-        const position = QueueManager.getQueuePosition(guild.id, interaction.user.id);
+        const { client, guild } = interaction;
+        const queue = QueueManager.getQueue(guild.id);
 
         const embed = new EmbedBuilder()
             .setColor(client.config.embeds.color)
             .setTitle('Ticket Queue Status')
-            .addFields(
-                { name: 'Queue Size', value: status.size.toString(), inline: true },
-                { name: 'Processing', value: status.processing ? 'Yes' : 'No', inline: true }
-            )
             .setTimestamp();
 
-        if (status.oldestRequest) {
-            embed.addFields({
-                name: 'Oldest Request',
-                value: `<t:${Math.floor(status.oldestRequest / 1000)}:R>`,
-                inline: true
-            });
+        if (!queue || queue.length === 0) {
+            embed.setDescription('There are currently no tickets in the queue.');
+            return interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        if (position > 0) {
-            embed.addFields({
-                name: 'Your Position',
-                value: `#${position}`,
-                inline: true
-            });
-
-            // Estimate wait time (2 seconds per ticket plus initial delay)
-            const estimatedWait = (position - 1) * 2;
-            if (estimatedWait > 0) {
-                embed.addFields({
-                    name: 'Estimated Wait',
-                    value: `${estimatedWait} seconds`,
-                    inline: true
-                });
-            }
-        }
-
-        // Add staff-only information
+        // Check if user is staff
         const isStaff = interaction.member.roles.cache
             .some(role => 
                 client.config.staffRoles.includes(role.id) ||
                 role.id === client.config.adminRole
             );
 
-        if (isStaff && status.size > 0) {
-            const queue = QueueManager.queues.get(guild.id) || [];
-            const nextUsers = queue.slice(0, 3).map((req, index) => 
-                `${index + 1}. ${req.interaction.user.tag}`
-            ).join('\n');
+        const queueLength = queue.length;
+        let description = `There ${queueLength === 1 ? 'is' : 'are'} currently ${queueLength} ticket${queueLength === 1 ? '' : 's'} in the queue.`;
 
+        // Find user's position in queue if they have a ticket
+        const userPosition = queue.findIndex(item => item.userId === interaction.user.id) + 1;
+        if (userPosition > 0) {
+            description += `\nYour position in queue: ${userPosition}`;
+        }
+
+        embed.setDescription(description);
+
+        // Add detailed queue information for staff
+        if (isStaff) {
+            const queueDetails = await Promise.all(queue.slice(0, 10).map(async (item, index) => {
+                const user = await client.users.fetch(item.userId).catch(() => null);
+                return `${index + 1}. ${user ? user.tag : 'Unknown User'} - ${item.type} (Waiting: <t:${Math.floor(item.joinedAt / 1000)}:R>)`;
+            }));
+
+            if (queueDetails.length > 0) {
+                embed.addFields({
+                    name: 'Queue Details',
+                    value: queueDetails.join('\n'),
+                });
+
+                if (queue.length > 10) {
+                    embed.addFields({
+                        name: 'Note',
+                        value: `+ ${queue.length - 10} more tickets in queue`,
+                    });
+                }
+            }
+
+            // Add average wait time if available
+            if (client.queueStats && client.queueStats.averageWaitTime) {
+                const avgWaitMins = Math.round(client.queueStats.averageWaitTime / 60000);
+                embed.addFields({
+                    name: 'Average Wait Time',
+                    value: `${avgWaitMins} minutes`,
+                    inline: true
+                });
+            }
+
+            // Add queue settings
             embed.addFields({
-                name: 'Next in Queue',
-                value: nextUsers || 'No users in queue',
-                inline: false
+                name: 'Queue Settings',
+                value: [
+                    `Max Concurrent Tickets: ${client.config.ticketSettings.maxConcurrentTickets}`,
+                    `Max Queue Size: ${client.config.ticketSettings.maxQueueSize}`,
+                    `Auto-close After: ${client.config.ticketSettings.closeTimeout} hours`
+                ].join('\n'),
+                inline: true
             });
         }
 
-        return interaction.reply({
-            embeds: [embed],
-            ephemeral: true
+        return interaction.reply({ 
+            embeds: [embed], 
+            ephemeral: !isStaff 
         });
     },
 };

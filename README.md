@@ -1,33 +1,37 @@
-# Discord Ticket Bot ( SOME ISSUE I'll FIX IT NOW )
+# Discord Ticket Bot
 
-A feature-rich ticket management system for Discord servers with support for multiple categories, transcripts, and extensive customization.
+A feature-rich ticket management system for Discord servers with support for multiple categories, staff performance tracking, visual statistics, and extensive customization options.
 
 ## Features
 
 ### Core Commands
-- `/send-panel` - Create customizable ticket panels (buttons or select menus)
-- `/close` - Close tickets with optional reason
-- `/reopen` - Reopen closed tickets
+- `/send-panel` - Create customizable ticket panels with buttons or select menus
+- `/close` - Close tickets with optional reason and transcript generation
+- `/reopen` - Reopen previously closed tickets
 - `/add` & `/remove` - Manage users in tickets
 - `/rename` - Rename ticket channels
 - `/tag` - Ping roles/users in tickets
-- `/transcript` - Generate HTML transcripts (auto-delete after 12h)
-- `/stats` - View ticket statistics with visual display
+- `/transcript` - Generate HTML transcripts with automatic cleanup after 12 hours
+- `/stats` - View comprehensive ticket statistics
+  - Individual staff performance metrics with visual graphs
+  - Overall staff performance comparison
+  - System-wide statistics with category breakdowns
 
 ### Admin Commands
-- `/setup` - Configure categories, roles, channels, etc.
-- `/ticket-config` - View current configuration
-- `/reset-panel` - Remove or update ticket panels
+- `/setup` - Configure categories, roles, channels, and other settings
+- `/ticket-config` - View and verify current configuration
+- `/reset-panel` - Remove or update existing ticket panels
 
 ### Smart Features
 - Auto-increment ticket names (ticket-001, ticket-002, etc.)
-- Comprehensive logging system
-- Configurable cooldowns & max tickets per user
-- Auto-delete closed tickets
-- HTML transcripts with automatic cleanup
-- Support for multiple ticket categories
+- Comprehensive logging system for all ticket actions
+- Configurable cooldowns & maximum tickets per user
+- Auto-delete closed tickets after configurable duration
+- HTML transcripts with formatting and automatic cleanup
+- Support for multiple ticket categories with custom settings
 - Role-based permissions system
-- Ticket claiming system for staff
+- Staff ticket claiming system with performance tracking
+- Visual statistics and performance metrics
 
 ## Setup
 
@@ -78,12 +82,12 @@ A feature-rich ticket management system for Discord servers with support for mul
 
 3. **Deploy Commands**
    ```bash
-   npm run deploy
+   node deploy-commands.js
    ```
 
 4. **Start the Bot**
    ```bash
-   npm start
+   node index.js
    ```
 
 ## Usage
@@ -92,17 +96,41 @@ A feature-rich ticket management system for Discord servers with support for mul
 2. Use `/send-panel` to create ticket panels in your chosen channels
 3. Configure additional settings as needed using admin commands
 4. Staff can use ticket management commands in created tickets
+5. Monitor performance using `/stats` command
 
 ## Requirements
 
 - Node.js 16.9.0 or higher
 - Discord.js v14
-- A Discord bot token with appropriate intents:
+- Canvas (for statistics graphs)
+- A Discord bot token with the following intents:
   - GUILDS
   - GUILD_MESSAGES
   - MESSAGE_CONTENT
   - GUILD_MEMBERS
 
+## Features by Role
+
+### Admin
+- Full access to all commands
+- Configure bot settings
+- Manage ticket panels
+- View all statistics
+- Override any restrictions
+
+### Staff
+- Create and manage tickets
+- View assigned ticket statistics
+- Generate transcripts
+- Add/remove users
+- Close/reopen tickets
+
+### Users
+- Create tickets through panels
+- View their ticket history
+- Add messages to their tickets
+- Close their own tickets (if enabled)
+
 ## Support
 
-For support, please create an issue in the repository or contact the maintainers.
+For support, feature requests, or bug reports, please create an issue in the repository or contact the maintainers.
