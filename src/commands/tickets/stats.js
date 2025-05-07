@@ -1,218 +1,231 @@
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const { formatDistanceToNow, startOfDay, endOfDay, subDays } = require('date-fns');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('stats')
         .setDescription('View ticket statistics')
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('overview')
-                .setDescription('View general ticket statistics'))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('staff')
-                .setDescription('View staff performance statistics'))
-        .addSubcommand(subcommand =>
-            subcommand
-                .setName('daily')
-                .setDescription('View daily ticket statistics')
-                .addIntegerOption(option =>
-                    option.setName('days')
-                        .setDescription('Number of days to show (default: 7)')
-                        .setRequired(false))),
+        .addUserOption(option =>
+            option.setName('staff')
+                .setDescription('View stats for a specific staff member')
+                .setRequired(false))
+        .addStringOption(option =>
+            option.setName('timeframe')
+                .setDescription('Timeframe for statistics')
+                .setRequired(false)
+                .addChoices(
+                    { name: 'Today', value: 'today' },
+                    { name: 'This Week', value: 'week' },
+                    { name: 'This Month', value: 'month' },
+                    { name: 'All Time', value: 'all' }
+                )),
 
     async execute(interaction) {
         const { client } = interaction;
-        const subcommand = interaction.options.getSubcommand();
+        const staffMember = interaction.options.getUser('staff');
+        const timeframe = interaction.options.getString('timeframe') || 'all';
 
-        // Check staff permission
-        const isStaff = interaction.member.roles.cache
-            .some(role => 
-                client.config.staffRoles.includes(role.id) ||
-                role.id === client.config.adminRole
-            );
+        // Check if user has permission to view staff stats
+        const isStaff = interaction.member.roles.cache.some(role => 
+            client.config.staffRoles.includes(role.id) || 
+            role.id === client.config.adminRole
+        );
 
-        if (!isStaff) {
+        if (staffMember && !isStaff) {
             return interaction.reply({
-                content: 'Only staff members can view ticket statistics!',
+                content: 'You do not have permission to view staff statistics!',
                 ephemeral: true
             });
         }
 
-        switch (subcommand) {
-            case 'overview': {
-                await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply();
 
-                const activeTickets = client.tickets.size;
-                const archivedTickets = client.archivedTickets.size;
-                const totalTickets = activeTickets + archivedTickets;
-
-                // Calculate average resolution time
-                let totalResolutionTime = 0;
-                let resolvedCount = 0;
-                client.archivedTickets.forEach(ticket => {
-                    if (ticket.closedAt && ticket.createdAt) {
-                        totalResolutionTime += new Date(ticket.closedAt) - new Date(ticket.createdAt);
-                        resolvedCount++;
-                    }
-                });
-
-                const avgResolutionTime = resolvedCount > 0
-                    ? Math.floor(totalResolutionTime / resolvedCount / 1000 / 60) // Convert to minutes
-                    : 0;
-
-                const embed = new EmbedBuilder()
-                    .setColor(client.config.embeds.color)
-                    .setTitle('Ticket Statistics Overview')
-                    .addFields(
-                        { name: 'Active Tickets', value: activeTickets.toString(), inline: true },
-                        { name: 'Archived Tickets', value: archivedTickets.toString(), inline: true },
-                        { name: 'Total Tickets', value: totalTickets.toString(), inline: true },
-                        { name: 'Average Resolution Time', value: `${avgResolutionTime} minutes`, inline: true }
-                    )
-                    .setTimestamp();
-
-                return interaction.editReply({ embeds: [embed] });
-            }
-
-            case 'staff': {
-                await interaction.deferReply({ ephemeral: true });
-
-                const staffStats = new Map();
-
-                // Initialize staff stats
-                interaction.guild.members.cache
-                    .filter(member => 
-                        member.roles.cache.some(role => 
-                            client.config.staffRoles.includes(role.id)
-                        )
-                    )
-                    .forEach(member => {
-                        staffStats.set(member.id, {
-                            ticketsClosed: 0,
-                            averageResponseTime: 0,
-                            totalResponseTime: 0,
-                            responseCount: 0,
-                            ticketsClaimed: 0
-                        });
-                    });
-
-                // Process archived tickets
-                client.archivedTickets.forEach(ticket => {
-                    if (ticket.closedBy && staffStats.has(ticket.closedBy)) {
-                        const stats = staffStats.get(ticket.closedBy);
-                        stats.ticketsClosed++;
-                    }
-                    if (ticket.claimedBy && staffStats.has(ticket.claimedBy)) {
-                        const stats = staffStats.get(ticket.claimedBy);
-                        stats.ticketsClaimed++;
-                        if (ticket.claimedAt && ticket.createdAt) {
-                            const responseTime = new Date(ticket.claimedAt) - new Date(ticket.createdAt);
-                            stats.totalResponseTime += responseTime;
-                            stats.responseCount++;
-                        }
-                    }
-                });
-
-                // Calculate averages
-                staffStats.forEach(stats => {
-                    if (stats.responseCount > 0) {
-                        stats.averageResponseTime = Math.floor(
-                            stats.totalResponseTime / stats.responseCount / 1000 / 60
-                        ); // Convert to minutes
-                    }
-                });
-
-                // Create embed
-                const embed = new EmbedBuilder()
-                    .setColor(client.config.embeds.color)
-                    .setTitle('Staff Performance Statistics')
-                    .setTimestamp();
-
-                for (const [staffId, stats] of staffStats) {
-                    const member = await interaction.guild.members.fetch(staffId);
-                    embed.addFields({
-                        name: member.displayName,
-                        value: [
-                            `Tickets Closed: ${stats.ticketsClosed}`,
-                            `Tickets Claimed: ${stats.ticketsClaimed}`,
-                            `Average Response Time: ${stats.averageResponseTime} minutes`
-                        ].join('\n'),
-                        inline: true
-                    });
-                }
-
-                return interaction.editReply({ embeds: [embed] });
-            }
-
-            case 'daily': {
-                await interaction.deferReply({ ephemeral: true });
-                const days = interaction.options.getInteger('days') || 7;
-
-                // Initialize daily stats
-                const dailyStats = new Map();
-                for (let i = 0; i < days; i++) {
-                    const date = subDays(new Date(), i);
-                    dailyStats.set(date.toDateString(), {
-                        created: 0,
-                        closed: 0,
-                        averageResolutionTime: 0,
-                        totalResolutionTime: 0,
-                        resolvedCount: 0
-                    });
-                }
-
-                // Process archived tickets
-                client.archivedTickets.forEach(ticket => {
-                    const createdDate = new Date(ticket.createdAt);
-                    const closedDate = ticket.closedAt ? new Date(ticket.closedAt) : null;
-
-                    // Count created tickets
-                    if (dailyStats.has(createdDate.toDateString())) {
-                        const stats = dailyStats.get(createdDate.toDateString());
-                        stats.created++;
-                    }
-
-                    // Count closed tickets and resolution time
-                    if (closedDate && dailyStats.has(closedDate.toDateString())) {
-                        const stats = dailyStats.get(closedDate.toDateString());
-                        stats.closed++;
-                        const resolutionTime = closedDate - createdDate;
-                        stats.totalResolutionTime += resolutionTime;
-                        stats.resolvedCount++;
-                    }
-                });
-
-                // Calculate averages
-                dailyStats.forEach(stats => {
-                    if (stats.resolvedCount > 0) {
-                        stats.averageResolutionTime = Math.floor(
-                            stats.totalResolutionTime / stats.resolvedCount / 1000 / 60
-                        ); // Convert to minutes
-                    }
-                });
-
-                // Create embed
-                const embed = new EmbedBuilder()
-                    .setColor(client.config.embeds.color)
-                    .setTitle(`Daily Ticket Statistics (Last ${days} Days)`)
-                    .setTimestamp();
-
-                for (const [date, stats] of dailyStats) {
-                    embed.addFields({
-                        name: date,
-                        value: [
-                            `Created: ${stats.created}`,
-                            `Closed: ${stats.closed}`,
-                            `Average Resolution: ${stats.averageResolutionTime} minutes`
-                        ].join('\n'),
-                        inline: true
-                    });
-                }
-
-                return interaction.editReply({ embeds: [embed] });
-            }
+        try {
+            const stats = await getStats(client, timeframe, staffMember?.id);
+            const embed = createStatsEmbed(stats, timeframe, staffMember);
+            
+            await interaction.editReply({ embeds: [embed] });
+        } catch (error) {
+            console.error('Error generating stats:', error);
+            await interaction.editReply({
+                content: 'An error occurred while generating statistics.',
+                ephemeral: true
+            });
         }
-    },
+    }
 };
+
+async function getStats(client, timeframe, staffId = null) {
+    const now = new Date();
+    let startDate;
+
+    switch (timeframe) {
+        case 'today':
+            startDate = new Date(now.setHours(0, 0, 0, 0));
+            break;
+        case 'week':
+            startDate = new Date(now.setDate(now.getDate() - now.getDay()));
+            break;
+        case 'month':
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            break;
+        default:
+            startDate = new Date(0); // All time
+    }
+
+    const tickets = await client.dataManager.getTickets(startDate);
+    
+    const stats = {
+        total: 0,
+        open: 0,
+        closed: 0,
+        avgResponseTime: 0,
+        avgResolutionTime: 0,
+        responseTimeSum: 0,
+        resolutionTimeSum: 0,
+        typeCounts: {},
+        staffStats: {}
+    };
+
+    for (const ticket of tickets) {
+        // Skip if looking for specific staff member and they're not involved
+        if (staffId && !ticket.staffInteractions?.some(i => i.staffId === staffId)) {
+            continue;
+        }
+
+        stats.total++;
+        if (ticket.status === 'open') stats.open++;
+        if (ticket.status === 'closed') stats.closed++;
+
+        // Count ticket types
+        stats.typeCounts[ticket.type] = (stats.typeCounts[ticket.type] || 0) + 1;
+
+        // Calculate response and resolution times
+        if (ticket.staffInteractions?.length > 0) {
+            const firstResponse = ticket.staffInteractions[0].timestamp;
+            const responseTime = new Date(firstResponse) - new Date(ticket.createdAt);
+            stats.responseTimeSum += responseTime;
+
+            if (ticket.status === 'closed') {
+                const resolutionTime = new Date(ticket.closedAt) - new Date(ticket.createdAt);
+                stats.resolutionTimeSum += resolutionTime;
+            }
+
+            // Track staff performance
+            ticket.staffInteractions.forEach(interaction => {
+                const staffMember = interaction.staffId;
+                if (!stats.staffStats[staffMember]) {
+                    stats.staffStats[staffMember] = {
+                        responses: 0,
+                        ticketsHandled: new Set(),
+                        avgResponseTime: 0,
+                        responseTimeSum: 0
+                    };
+                }
+                stats.staffStats[staffMember].responses++;
+                stats.staffStats[staffMember].ticketsHandled.add(ticket.id);
+            });
+        }
+    }
+
+    // Calculate averages
+    if (stats.total > 0) {
+        stats.avgResponseTime = stats.responseTimeSum / stats.total;
+        if (stats.closed > 0) {
+            stats.avgResolutionTime = stats.resolutionTimeSum / stats.closed;
+        }
+    }
+
+    // Convert staff stats Sets to numbers and calculate averages
+    Object.values(stats.staffStats).forEach(staffStat => {
+        staffStat.ticketsHandled = staffStat.ticketsHandled.size;
+    });
+
+    return stats;
+}
+
+function createStatsEmbed(stats, timeframe, staffMember) {
+    const timeframeText = {
+        today: "Today's",
+        week: "This Week's",
+        month: "This Month's",
+        all: "All Time"
+    }[timeframe];
+
+    const embed = new EmbedBuilder()
+        .setColor('#0099ff')
+        .setTitle(`${staffMember ? `${staffMember.username}'s ` : ''}${timeframeText} Ticket Statistics`)
+        .setTimestamp();
+
+    // Add ticket counts
+    embed.addFields(
+        { name: 'Total Tickets', value: stats.total.toString(), inline: true },
+        { name: 'Open Tickets', value: stats.open.toString(), inline: true },
+        { name: 'Closed Tickets', value: stats.closed.toString(), inline: true }
+    );
+
+    // Add average times
+    if (stats.avgResponseTime) {
+        embed.addFields({
+            name: 'Average Response Time',
+            value: formatDuration(stats.avgResponseTime),
+            inline: true
+        });
+    }
+    
+    if (stats.avgResolutionTime) {
+        embed.addFields({
+            name: 'Average Resolution Time',
+            value: formatDuration(stats.avgResolutionTime),
+            inline: true
+        });
+    }
+
+    // Add ticket type distribution
+    const typeDistribution = Object.entries(stats.typeCounts)
+        .map(([type, count]) => `${type}: ${count}`)
+        .join('\n');
+    
+    if (typeDistribution) {
+        embed.addFields({
+            name: 'Ticket Types',
+            value: typeDistribution,
+            inline: false
+        });
+    }
+
+    // Add staff performance metrics if viewing all stats
+    if (!staffMember && Object.keys(stats.staffStats).length > 0) {
+        const staffPerformance = Object.entries(stats.staffStats)
+            .map(([staffId, stat]) => ({
+                id: staffId,
+                ...stat
+            }))
+            .sort((a, b) => b.ticketsHandled - a.ticketsHandled)
+            .slice(0, 5)
+            .map(stat => `<@${stat.id}>: ${stat.ticketsHandled} tickets, ${stat.responses} responses`)
+            .join('\n');
+
+        if (staffPerformance) {
+            embed.addFields({
+                name: 'Top Staff Performance',
+                value: staffPerformance,
+                inline: false
+            });
+        }
+    }
+
+    return embed;
+}
+
+function formatDuration(ms) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
+
+    if (days > 0) return `${days}d ${hours % 24}h`;
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+}
