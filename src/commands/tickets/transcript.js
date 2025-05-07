@@ -1,136 +1,166 @@
-const { SlashCommandBuilder, AttachmentBuilder } = require('discord.js');
-const { createTranscript } = require('discord-html-transcripts');
-const { addHours } = require('date-fns');
+const { SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { generateTranscript } = require('discord-html-transcripts');
+const fs = require('fs').promises;
+const path = require('path');
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('transcript')
-        .setDescription('Generate a transcript of the ticket')
+        .setDescription('Generate a transcript of a ticket')
         .addStringOption(option =>
             option.setName('ticket-id')
-                .setDescription('ID of an archived ticket to view transcript (staff only)')
+                .setDescription('ID of the ticket to get transcript for (staff only)')
                 .setRequired(false)),
-
+    
     async execute(interaction) {
-        const { channel, client, guild } = interaction;
-        const requestedId = interaction.options.getString('ticket-id');
-        
-        // Check staff permission if requesting archived ticket
-        if (requestedId) {
-            const hasPermission = interaction.member.roles.cache
-                .some(role => 
-                    client.config.staffRoles.includes(role.id) ||
-                    role.id === client.config.adminRole
-                );
+        const { client, channel } = interaction;
+        const ticketId = interaction.options.getString('ticket-id');
 
-            if (!hasPermission) {
-                return interaction.reply({
-                    content: 'You do not have permission to view archived ticket transcripts!',
-                    ephemeral: true
-                });
-            }
+        await interaction.deferReply({ ephemeral: true });
 
-            // Try to find archived ticket
-            const archivedTicket = client.archivedTickets.get(requestedId);
-            if (!archivedTicket) {
-                return interaction.reply({
-                    content: 'Could not find an archived ticket with that ID.',
-                    ephemeral: true
-                });
-            }
+        // Check if user has permission to use this command
+        const isStaff = interaction.member.roles.cache.some(role => 
+            client.config.staffRoles.includes(role.id) || 
+            role.id === client.config.adminRole
+        );
 
-            // Check if transcript already exists
-            const transcriptChannel = await guild.channels.fetch(client.config.ticketSettings.transcriptChannelId);
-            if (!transcriptChannel) {
-                return interaction.reply({
-                    content: 'Transcript channel not found. Please contact an administrator.',
-                    ephemeral: true
-                });
-            }
-
-            // Search for transcript in transcript channel
-            try {
-                await interaction.deferReply({ ephemeral: true });
-                const messages = await transcriptChannel.messages.fetch({ limit: 100 });
-                const transcriptMessage = messages.find(m => 
-                    m.attachments.size > 0 && 
-                    m.content.includes(`Transcript for ticket #${requestedId}`)
-                );
-
-                if (transcriptMessage) {
-                    const transcript = transcriptMessage.attachments.first();
-                    return interaction.editReply({
-                        content: `Here is the transcript for ticket #${requestedId}:`,
-                        files: [transcript]
-                    });
-                } else {
-                    return interaction.editReply({
-                        content: 'Transcript not found. It may have been deleted or expired.',
-                    });
-                }
-            } catch (error) {
-                console.error('Error fetching archived transcript:', error);
+        // If no ticket ID is provided, use current channel
+        if (!ticketId) {
+            const ticket = client.tickets.get(channel.id);
+            if (!ticket) {
                 return interaction.editReply({
-                    content: 'There was an error retrieving the transcript.',
+                    content: 'This command can only be used in ticket channels!',
+                    ephemeral: true
                 });
             }
+
+            // Check if user is ticket creator or staff
+            if (ticket.userId !== interaction.user.id && !isStaff) {
+                return interaction.editReply({
+                    content: 'You can only generate transcripts for your own tickets!',
+                    ephemeral: true
+                });
+            }
+
+            await generateCurrentTranscript(interaction, ticket);
+            return;
         }
 
-        // Handle current ticket transcript
-        const ticket = client.tickets.get(channel.id);
-        if (!ticket) {
-            return interaction.reply({
-                content: 'This command can only be used in ticket channels!',
+        // If ticket ID is provided, only staff can access it
+        if (!isStaff) {
+            return interaction.editReply({
+                content: 'Only staff members can generate transcripts for other tickets!',
                 ephemeral: true
             });
         }
 
-        // Check permission for current ticket
-        const canViewTranscript = interaction.member.roles.cache
-            .some(role => 
-                client.config.staffRoles.includes(role.id) ||
-                role.id === client.config.adminRole
-            ) || interaction.user.id === ticket.userId;
-
-        if (!canViewTranscript) {
-            return interaction.reply({
-                content: 'You do not have permission to view this ticket\'s transcript!',
+        // Get ticket from archives
+        const archivedTicket = await client.dataManager.getArchivedTicket(ticketId);
+        if (!archivedTicket) {
+            return interaction.editReply({
+                content: 'Could not find a ticket with that ID!',
                 ephemeral: true
             });
         }
 
-        try {
-            await interaction.deferReply({ ephemeral: true });
-
-            const transcript = await createTranscript(channel, {
-                limit: -1,
-                fileName: `ticket-${ticket.id}.html`,
-                poweredBy: false,
-                headerText: `Ticket #${ticket.id} Transcript`,
-            });
-
-            // Log transcript generation
-            const logChannel = await guild.channels.fetch(client.config.ticketSettings.logChannelId);
-            if (logChannel) {
-                await logChannel.send({
-                    embeds: [{
-                        color: parseInt(client.config.embeds.color.replace('#', ''), 16),
-                        title: 'Transcript Generated',
-                        description: `Transcript generated for ticket #${ticket.id} by ${interaction.user}`,
-                        timestamp: new Date()
-                    }]
-                });
-            }
-
-            return interaction.editReply({
-                content: `Here is the transcript for ticket #${ticket.id}:`,
-                files: [transcript]
-            });
-        } catch (error) {
-            console.error('Error generating transcript:', error);
-            return interaction.editReply({
-                content: 'There was an error generating the transcript.',
-            });
-        }
-    },
+        await generateArchivedTranscript(interaction, archivedTicket);
+    }
 };
+
+async function generateCurrentTranscript(interaction, ticket) {
+    const { channel } = interaction;
+
+    try {
+        // Generate HTML transcript
+        const transcript = await generateTranscript(channel, {
+            limit: -1,
+            returnBuffer: false,
+            fileName: `transcript-${ticket.id}.html`,
+            poweredBy: false
+        });
+
+        // Save transcript file
+        const transcriptPath = path.join(process.cwd(), 'data', 'transcripts');
+        await fs.mkdir(transcriptPath, { recursive: true });
+        await fs.writeFile(
+            path.join(transcriptPath, `transcript-${ticket.id}.html`),
+            transcript
+        );
+
+        // Create transcript embed
+        const embed = new EmbedBuilder()
+            .setColor(interaction.client.config.embeds.color)
+            .setTitle(`Transcript - Ticket #${ticket.id}`)
+            .setDescription('Generated transcript of the current ticket.')
+            .addFields(
+                { name: 'Ticket Owner', value: `<@${ticket.userId}>`, inline: true },
+                { name: 'Generated By', value: `<@${interaction.user.id}>`, inline: true },
+                { name: 'Generated At', value: `<t:${Math.floor(Date.now() / 1000)}:F>`, inline: true }
+            );
+
+        // Send transcript
+        await interaction.editReply({
+            embeds: [embed],
+            files: [transcript],
+            ephemeral: true
+        });
+    } catch (error) {
+        console.error('Error generating transcript:', error);
+        await interaction.editReply({
+            content: 'An error occurred while generating the transcript.',
+            ephemeral: true
+        });
+    }
+}
+
+async function generateArchivedTranscript(interaction, ticket) {
+    try {
+        // Create transcript embed
+        const embed = new EmbedBuilder()
+            .setColor(interaction.client.config.embeds.color)
+            .setTitle(`Transcript - Ticket #${ticket.id}`)
+            .setDescription('Archived ticket transcript.')
+            .addFields(
+                { name: 'Ticket Owner', value: `<@${ticket.userId}>`, inline: true },
+                { name: 'Created At', value: `<t:${Math.floor(new Date(ticket.createdAt).getTime() / 1000)}:F>`, inline: true },
+                { name: 'Closed At', value: `<t:${Math.floor(new Date(ticket.closedAt).getTime() / 1000)}:F>`, inline: true },
+                { name: 'Closed By', value: ticket.closedBy ? `<@${ticket.closedBy}>` : 'Unknown', inline: true },
+                { name: 'Type', value: ticket.type || 'Unknown', inline: true },
+                { name: 'Subject', value: ticket.subject || 'No subject', inline: true }
+            );
+
+        // Get transcript file if it exists
+        const transcriptPath = path.join(
+            process.cwd(),
+            'data',
+            'transcripts',
+            `transcript-${ticket.id}.html`
+        );
+
+        let transcriptFile;
+        try {
+            transcriptFile = await fs.readFile(transcriptPath);
+        } catch (error) {
+            if (error.code === 'ENOENT') {
+                embed.addFields({
+                    name: 'Note',
+                    value: 'Transcript file not found. This may be because the ticket was closed before transcript generation was implemented.',
+                    inline: false
+                });
+            }
+        }
+
+        // Send response
+        await interaction.editReply({
+            embeds: [embed],
+            files: transcriptFile ? [{ attachment: transcriptFile, name: `transcript-${ticket.id}.html` }] : [],
+            ephemeral: true
+        });
+    } catch (error) {
+        console.error('Error retrieving archived transcript:', error);
+        await interaction.editReply({
+            content: 'An error occurred while retrieving the transcript.',
+            ephemeral: true
+        });
+    }
+}

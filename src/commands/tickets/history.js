@@ -8,28 +8,21 @@ module.exports = {
         .addUserOption(option =>
             option.setName('user')
                 .setDescription('User to view history for (staff only)')
-                .setRequired(false))
-        .addIntegerOption(option =>
-            option.setName('page')
-                .setDescription('Page number to view')
-                .setMinValue(1)
                 .setRequired(false)),
 
     async execute(interaction) {
         const { client } = interaction;
         const targetUser = interaction.options.getUser('user') || interaction.user;
-        const page = interaction.options.getInteger('page') || 1;
-        const pageSize = 10;
 
-        // Check if user has permission to view other users' history
+        // If viewing other user's history, check staff permission
         if (targetUser.id !== interaction.user.id) {
-            const hasPermission = interaction.member.roles.cache
+            const isStaff = interaction.member.roles.cache
                 .some(role => 
                     client.config.staffRoles.includes(role.id) ||
                     role.id === client.config.adminRole
                 );
 
-            if (!hasPermission) {
+            if (!isStaff) {
                 return interaction.reply({
                     content: 'You can only view your own ticket history!',
                     ephemeral: true
@@ -37,79 +30,85 @@ module.exports = {
             }
         }
 
-        // Combine active and archived tickets for the user
-        const activeTickets = Array.from(client.tickets.values())
-            .filter(t => t.userId === targetUser.id);
-        const archivedTickets = Array.from(client.archivedTickets.values())
-            .filter(t => t.userId === targetUser.id);
-        
-        const allTickets = [...activeTickets, ...archivedTickets]
-            .sort((a, b) => b.createdAt - a.createdAt);
+        await interaction.deferReply({ ephemeral: true });
 
-        // Calculate pagination
-        const totalTickets = allTickets.length;
-        const totalPages = Math.ceil(totalTickets / pageSize);
-        const startIndex = (page - 1) * pageSize;
-        const endIndex = startIndex + pageSize;
-        const pageTickets = allTickets.slice(startIndex, endIndex);
+        // Get ticket history from DataManager
+        const ticketHistory = await client.dataManager.getTicketHistory(targetUser.id);
 
-        if (totalTickets === 0) {
-            return interaction.reply({
-                content: `${targetUser.id === interaction.user.id ? 'You have' : 'This user has'} no ticket history.`,
+        if (ticketHistory.length === 0) {
+            return interaction.editReply({
+                content: `No ticket history found for ${targetUser.id === interaction.user.id ? 'you' : targetUser.tag}!`,
                 ephemeral: true
             });
         }
 
-        // Create embed
+        // Create embed with ticket history
         const embed = new EmbedBuilder()
             .setColor(client.config.embeds.color)
             .setTitle(`Ticket History - ${targetUser.tag}`)
-            .setDescription(`Showing tickets ${startIndex + 1}-${Math.min(endIndex, totalTickets)} of ${totalTickets}`)
-            .setFooter({ text: `Page ${page}/${totalPages}` });
+            .setTimestamp();
 
-        // Add ticket entries
-        for (const ticket of pageTickets) {
-            const status = ticket.closed ? 'Closed' : 'Open';
-            const duration = ticket.closed && ticket.closedAt
-                ? formatDistanceToNow(ticket.createdAt, { addSuffix: true })
-                : 'Ongoing';
+        // Group tickets by status
+        const openTickets = ticketHistory.filter(t => !t.closed);
+        const closedTickets = ticketHistory.filter(t => t.closed);
 
-            embed.addFields({
-                name: `Ticket #${ticket.id} - ${ticket.type}`,
+        if (openTickets.length > 0) {
+            const openFields = openTickets.map(ticket => ({
+                name: `Ticket #${ticket.id}`,
                 value: [
-                    `**Status:** ${status}`,
-                    `**Created:** <t:${Math.floor(ticket.createdAt.getTime() / 1000)}:R>`,
-                    ticket.closed ? `**Closed:** <t:${Math.floor(ticket.closedAt.getTime() / 1000)}:R>` : '',
-                    ticket.claimedBy ? `**Claimed By:** <@${ticket.claimedBy}>` : '',
-                    ticket.closeReason ? `**Close Reason:** ${ticket.closeReason}` : '',
-                    `**Duration:** ${duration}`
+                    `Created: <t:${Math.floor(new Date(ticket.createdAt).getTime() / 1000)}:R>`,
+                    `Type: ${ticket.type}`,
+                    ticket.subject ? `Subject: ${ticket.subject}` : null,
+                    `Status: ${ticket.claimed ? 'Claimed' : 'Unclaimed'}`,
+                    ticket.claimedBy ? `Claimed by: <@${ticket.claimedBy}>` : null
                 ].filter(Boolean).join('\n'),
                 inline: false
-            });
+            }));
+            embed.addFields({ name: '📬 Open Tickets', value: '\u200B' });
+            embed.addFields(openFields);
         }
 
-        // Add statistics
-        const stats = {
-            total: totalTickets,
-            open: allTickets.filter(t => !t.closed).length,
-            closed: allTickets.filter(t => t.closed).length,
-            claimed: allTickets.filter(t => t.claimedBy).length
-        };
+        if (closedTickets.length > 0) {
+            const closedFields = closedTickets.slice(0, 5).map(ticket => ({
+                name: `Ticket #${ticket.id}`,
+                value: [
+                    `Created: <t:${Math.floor(new Date(ticket.createdAt).getTime() / 1000)}:R>`,
+                    `Closed: <t:${Math.floor(new Date(ticket.closedAt).getTime() / 1000)}:R>`,
+                    `Type: ${ticket.type}`,
+                    ticket.subject ? `Subject: ${ticket.subject}` : null,
+                    ticket.closedBy ? `Closed by: <@${ticket.closedBy}>` : null
+                ].filter(Boolean).join('\n'),
+                inline: false
+            }));
+            embed.addFields({ name: '📪 Recent Closed Tickets', value: '\u200B' });
+            embed.addFields(closedFields);
+        }
 
+        // Add summary field
         embed.addFields({
-            name: 'Statistics',
+            name: '📊 Summary',
             value: [
-                `Total Tickets: ${stats.total}`,
-                `Open Tickets: ${stats.open}`,
-                `Closed Tickets: ${stats.closed}`,
-                `Claimed Tickets: ${stats.claimed}`
+                `Total Tickets: ${ticketHistory.length}`,
+                `Open Tickets: ${openTickets.length}`,
+                `Closed Tickets: ${closedTickets.length}`,
+                `Average Resolution Time: ${calculateAverageResolutionTime(closedTickets)} minutes`
             ].join('\n'),
             inline: false
         });
 
-        return interaction.reply({
-            embeds: [embed],
-            ephemeral: true
-        });
+        return interaction.editReply({ embeds: [embed] });
     },
 };
+
+function calculateAverageResolutionTime(tickets) {
+    if (tickets.length === 0) return 0;
+
+    const totalTime = tickets.reduce((sum, ticket) => {
+        if (ticket.closedAt && ticket.createdAt) {
+            return sum + (new Date(ticket.closedAt) - new Date(ticket.createdAt));
+        }
+        return sum;
+    }, 0);
+
+    return Math.floor(totalTime / tickets.length / 1000 / 60); // Convert to minutes
+}
