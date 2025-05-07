@@ -142,5 +142,5 @@ client.on('ticketUpdate', () => {
     DataManager.saveTickets(client.tickets);
 });
 
-// Login
+// Login what do you think is this??
 client.login(client.config.token);

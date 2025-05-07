@@ -12,10 +12,19 @@ module.exports = {
 
     async execute(interaction) {
         const { channel, client } = interaction;
-        const newName = interaction.options.getString('name').toLowerCase()
+        const ticket = client.tickets.get(channel.id);
+        const newName = interaction.options.getString('name')
+            .toLowerCase()
             .replace(/[^a-z0-9-]/g, '-'); // Sanitize input
 
-        // Check staff permission
+        if (!ticket) {
+            return interaction.reply({
+                content: 'This command can only be used in ticket channels!',
+                ephemeral: true
+            });
+        }
+
+        // Check permissions
         const hasPermission = interaction.member.roles.cache
             .some(role => 
                 client.config.staffRoles.includes(role.id) ||
@@ -24,42 +33,26 @@ module.exports = {
 
         if (!hasPermission) {
             return interaction.reply({
-                content: 'You do not have permission to rename tickets!',
-                ephemeral: true
-            });
-        }
-
-        const ticket = client.tickets.get(channel.id);
-        if (!ticket) {
-            return interaction.reply({
-                content: 'This command can only be used in ticket channels!',
+                content: 'Only staff members can rename tickets!',
                 ephemeral: true
             });
         }
 
         try {
-            // Preserve ticket number in name
-            const newChannelName = `ticket-${ticket.id}-${newName}`;
-            
-            // Check name length
+            const oldName = channel.name;
+            const newChannelName = `ticket-${newName}`;
+
+            // Ensure the name isn't too long for Discord
             if (newChannelName.length > 100) {
                 return interaction.reply({
-                    content: 'The new name is too long. Please choose a shorter name.',
+                    content: 'The new name is too long! Please choose a shorter name.',
                     ephemeral: true
                 });
             }
 
-            // Attempt to rename channel
             await channel.setName(newChannelName);
 
-            // Update ticket data
-            await TicketManager.updateTicket(client, channel.id, {
-                customName: newName,
-                renamedBy: interaction.user.id,
-                renamedAt: new Date()
-            });
-
-            // Log channel rename
+            // Log the rename action
             const logChannel = await interaction.guild.channels.fetch(client.config.ticketSettings.logChannelId);
             if (logChannel) {
                 await logChannel.send({
@@ -68,8 +61,8 @@ module.exports = {
                         title: 'Ticket Renamed',
                         description: `Ticket #${ticket.id} has been renamed by ${interaction.user}`,
                         fields: [
-                            { name: 'New Name', value: newChannelName },
-                            { name: 'Original Creator', value: `<@${ticket.userId}>`, inline: true }
+                            { name: 'Old Name', value: oldName, inline: true },
+                            { name: 'New Name', value: newChannelName, inline: true }
                         ],
                         timestamp: new Date()
                     }]
@@ -77,8 +70,7 @@ module.exports = {
             }
 
             return interaction.reply({
-                content: `Ticket channel has been renamed to \`${newChannelName}\``,
-                ephemeral: true
+                content: `Ticket channel has been renamed from \`${oldName}\` to \`${newChannelName}\`.`
             });
         } catch (error) {
             console.error('Error renaming ticket:', error);

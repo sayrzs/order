@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const QueueManager = require('../../utils/queueManager');
-const { formatDistanceToNow } = require('date-fns');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -8,9 +7,9 @@ module.exports = {
         .setDescription('Check the current ticket queue status'),
 
     async execute(interaction) {
-        const { client, guild, user } = interaction;
+        const { guild, client } = interaction;
         const status = QueueManager.getQueueStatus(guild.id);
-        const userPosition = QueueManager.getQueuePosition(guild.id, user.id);
+        const position = QueueManager.getQueuePosition(guild.id, interaction.user.id);
 
         const embed = new EmbedBuilder()
             .setColor(client.config.embeds.color)
@@ -18,52 +17,51 @@ module.exports = {
             .addFields(
                 { name: 'Queue Size', value: status.size.toString(), inline: true },
                 { name: 'Processing', value: status.processing ? 'Yes' : 'No', inline: true }
-            );
+            )
+            .setTimestamp();
 
         if (status.oldestRequest) {
             embed.addFields({
                 name: 'Oldest Request',
-                value: formatDistanceToNow(status.oldestRequest, { addSuffix: true }),
+                value: `<t:${Math.floor(status.oldestRequest / 1000)}:R>`,
                 inline: true
             });
         }
 
-        if (userPosition > 0) {
+        if (position > 0) {
             embed.addFields({
                 name: 'Your Position',
-                value: userPosition.toString(),
+                value: `#${position}`,
                 inline: true
             });
 
-            // Estimate wait time based on queue position
-            const estimatedWaitMinutes = (userPosition - 1) * 2; // Assuming 2 minutes per ticket
-            embed.addFields({
-                name: 'Estimated Wait',
-                value: `~${estimatedWaitMinutes} minutes`,
-                inline: true
-            });
+            // Estimate wait time (2 seconds per ticket plus initial delay)
+            const estimatedWait = (position - 1) * 2;
+            if (estimatedWait > 0) {
+                embed.addFields({
+                    name: 'Estimated Wait',
+                    value: `${estimatedWait} seconds`,
+                    inline: true
+                });
+            }
         }
 
         // Add staff-only information
-        const hasStaffRole = interaction.member.roles.cache
+        const isStaff = interaction.member.roles.cache
             .some(role => 
                 client.config.staffRoles.includes(role.id) ||
                 role.id === client.config.adminRole
             );
 
-        if (hasStaffRole && status.size > 0) {
-            const queue = QueueManager.getDetailedQueueInfo(guild.id);
-            const queueBreakdown = queue.reduce((acc, req) => {
-                const type = req.panelConfig.name;
-                acc[type] = (acc[type] || 0) + 1;
-                return acc;
-            }, {});
+        if (isStaff && status.size > 0) {
+            const queue = QueueManager.queues.get(guild.id) || [];
+            const nextUsers = queue.slice(0, 3).map((req, index) => 
+                `${index + 1}. ${req.interaction.user.tag}`
+            ).join('\n');
 
             embed.addFields({
-                name: 'Queue Breakdown',
-                value: Object.entries(queueBreakdown)
-                    .map(([type, count]) => `${type}: ${count}`)
-                    .join('\n') || 'No tickets in queue',
+                name: 'Next in Queue',
+                value: nextUsers || 'No users in queue',
                 inline: false
             });
         }
