@@ -1,5 +1,6 @@
 const fs = require('fs').promises;
 const path = require('path');
+const { differenceInHours } = require('date-fns');
 
 class DataManager {
     static dataPath = path.join(process.cwd(), 'data');
@@ -54,6 +55,43 @@ class DataManager {
             return new Map();
         }
     }
-}
 
-module.exports = DataManager;
+    static async cleanupOldTickets(client) {
+        try {
+            const { ticketSettings } = client.config;
+            const now = new Date();
+            const tickets = Array.from(client.tickets.values());
+
+            for (const ticket of tickets) {
+                if (ticket.closed && ticket.closedAt) {
+                    const hoursSinceClosure = differenceInHours(now, new Date(ticket.closedAt));
+                    
+                    if (hoursSinceClosure >= ticketSettings.autoCloseHours) {
+                        // Attempt to delete the channel
+                        try {
+                            const channel = await client.channels.fetch(ticket.channelId);
+                            if (channel && channel.deletable) {
+                                await channel.delete(`Auto-deleted after ${ticketSettings.autoCloseHours} hours`);
+                            }
+                        } catch (error) {
+                            if (error.code === 10003) { // Unknown Channel error
+                                // Channel already deleted, remove from collection
+                                client.tickets.delete(ticket.channelId);
+                                continue;
+                            }
+                            console.error(`Error deleting channel for ticket #${ticket.id}:`, error);
+                        }
+
+                        // Remove ticket from collection
+                        client.tickets.delete(ticket.channelId);
+                        client.emit('ticketUpdate');
+
+                        // Log cleanup
+                        const logChannel = await client.channels.fetch(ticketSettings.logChannelId);
+                        if (logChannel) {
+                            await logChannel.send({
+                                embeds: [{
+                                    color: 0x808080,
+                                    title: 'Ticket Auto-Deleted',
+                                    description: `Ticket #${ticket.id} has been automatically deleted after ${ticketSettings.autoCloseHours} hours of inactivity.`,
+                                    fields: [

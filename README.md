@@ -1,4 +1,4 @@
-# Discord Ticket Bot
+# Discord Ticket Bot ( SOME ISSUE I'll FIX IT NOW )
 
 A feature-rich ticket management system for Discord servers with support for multiple categories, transcripts, and extensive customization.
 
