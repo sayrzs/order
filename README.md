@@ -33,6 +33,27 @@ A feature-rich ticket management system for Discord servers with support for mul
 - Staff ticket claiming system with performance tracking
 - Visual statistics and performance metrics
 
+## New Features
+
+### Multi-Language Support
+- Supports English (EN) and Arabic (AR).
+- Use `/set-language` to switch between languages.
+
+### Ticket Categories
+- Users can select categories like Support, Store, and Order using a select menu.
+- Use `/open-ticket-menu` to display the category selection menu.
+
+### Staff Leaderboard
+- Tracks staff performance (tickets closed, reopened, solved, claimed).
+- Generates a visual leaderboard image using a Dracula theme.
+- Use `/leaderboard` to generate and view the leaderboard.
+
+### Anti-Spam Ticket System
+- Limits users to creating a maximum of 2 tickets at a time.
+
+### Enhanced User Experience
+- Replaced buttons with a modern select menu for better navigation.
+
 ## Setup
 
 1. **Install Dependencies**
@@ -130,6 +151,17 @@ A feature-rich ticket management system for Discord servers with support for mul
 - View their ticket history
 - Add messages to their tickets
 - Close their own tickets (if enabled)
+
+## Commands
+
+### User Commands
+- `/create-ticket` - Create a new ticket by selecting a category.
+- `/close-ticket` - Close an existing ticket by providing its ID.
+- `/set-language` - Set your preferred language (EN or AR).
+- `/open-ticket-menu` - Open the ticket category selection menu.
+
+### Admin Commands
+- `/leaderboard` - Generate and view the staff leaderboard.
 
 ## Support
 

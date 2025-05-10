@@ -1,35 +1,30 @@
 {
-    "clientId": "YOUR_BOT_CLIENT_ID",
-    "token": "YOUR_BOT_TOKEN",
-    "adminRole": "ADMIN_ROLE_ID",
-    "staffRoles": ["STAFF_ROLE_ID"],
-    "ticketSettings": {
-        "categoryId": "TICKETS_CATEGORY_ID",
-        "logChannelId": "LOG_CHANNEL_ID",
-        "transcriptChannelId": "TRANSCRIPT_CHANNEL_ID",
-        "maxTicketsPerUser": 3,
-        "ticketCooldown": 300,
-        "autoCloseHours": 24,
-        "transcriptExpiryHours": 12
-    },
-    "panels": [
-        {
-            "name": "Support",
-            "emoji": "🎫",
-            "description": "Create a support ticket",
-            "color": "#5865F2"
-        },
-        {
-            "name": "Store",
-            "emoji": "🛍️",
-            "description": "Create a store-related ticket",
-            "color": "#57F287"
-        }
-    ],
-    "embeds": {
-        "color": "#5865F2",
-        "footerText": "Support Tickets",
-        "timestamp": true,
-        "thumbnailUrl": ""
-    }
+  "token": "YOUR_DISCORD_BOT_TOKEN",
+  "guildId": "YOUR_SERVER_ID",
+  "staffRoleIds": ["STAFF_ROLE_ID_1", "STAFF_ROLE_ID_2"],
+  "ticketCategoryParentId": "CATEGORY_ID_FOR_OPEN_TICKETS",
+  "archiveCategoryParentId": "CATEGORY_ID_FOR_CLOSED_TICKETS",
+  "ticketLogChannelId": "CHANNEL_ID_FOR_TICKET_LOGS",
+  "panelChannelId": "CHANNEL_ID_WHERE_PANEL_COMMAND_WORKS",
+  "panelEmbed": {
+    "title": "Support Tickets",
+    "description": "Click the button below to open a support ticket. Please provide as much detail as possible when describing your issue.",
+    "color": "#000000",
+    "footer": "Our support team will assist you shortly."
+  },
+  "ticketOpenButton": {
+    "label": "Open Ticket",
+    "emoji": "🎟️",
+    "style": "Primary"
+  },
+  "initialTicketMessage": "Welcome, {user}! Please describe your issue. A staff member will be with you shortly.",
+  "ticketCloseMessage": "Ticket closed by {staff_user}. A transcript may be available if configured.",
+  "ticketNamePrefix": "ticket-",
+  "languageOptions": ["en", "ar"],
+  "maxTicketsPerUser": 2,
+  "categories": [
+    { "label": "Support", "value": "support" },
+    { "label": "Store", "value": "store" },
+    { "label": "Order", "value": "order" }
+  ]
 }
